@@ -1,16 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useStore, SEVERITY_ORDER } from '../store';
-import type { AttackNode, Severity } from '../types';
+import type { AttackNode, Finding, Severity } from '../types';
 import { outgoing, NODE_BY_ID } from '../data/attackLibrary';
 
 interface Props {
-  node: AttackNode | null;
+  /** Library node for "add new". Mutually exclusive with `finding`. */
+  node?: AttackNode | null;
+  /** Existing finding to edit. Mutually exclusive with `node`. */
+  finding?: Finding | null;
   onClose: () => void;
 }
 
-export function FindingDialog({ node, onClose }: Props) {
+export function FindingDialog({ node, finding, onClose }: Props) {
   const addFinding = useStore((s) => s.addFinding);
+  const updateFinding = useStore((s) => s.updateFinding);
+  const deleteFinding = useStore((s) => s.deleteFinding);
   const addEdge = useStore((s) => s.addEdge);
+
+  const libNode: AttackNode | null = finding
+    ? NODE_BY_ID[finding.nodeId] ?? null
+    : node ?? null;
 
   const [title, setTitle] = useState('');
   const [location, setLocation] = useState('');
@@ -19,26 +28,48 @@ export function FindingDialog({ node, onClose }: Props) {
   const [autoChain, setAutoChain] = useState(true);
 
   useEffect(() => {
-    if (node) {
+    if (finding) {
+      setTitle(finding.title);
+      setLocation(finding.location);
+      setSeverity(finding.severity);
+      setNotes(finding.notes ?? '');
+    } else if (node) {
       setTitle(node.label);
       setLocation('');
       setSeverity(node.severity ?? 'high');
       setNotes('');
     }
-  }, [node]);
+  }, [finding, node]);
 
-  if (!node) return null;
+  // Esc to close
+  useEffect(() => {
+    if (!libNode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [libNode, onClose]);
 
-  const downstream = outgoing(node.id).map((e) => ({
+  if (!libNode) return null;
+
+  const isEdit = !!finding;
+  const downstream = outgoing(libNode.id).map((e) => ({
     node: NODE_BY_ID[e.to],
     rationale: e.rationale,
   }));
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!node) return;
-    const id = addFinding({ nodeId: node.id, title, location, severity, notes });
-    // Auto-chain: for each downstream canonical node, create a placeholder finding too.
+    if (!libNode) return;
+
+    if (isEdit && finding) {
+      updateFinding(finding.id, { title, location, severity, notes });
+      onClose();
+      return;
+    }
+
+    const id = addFinding({ nodeId: libNode.id, title, location, severity, notes });
     if (autoChain && downstream.length > 0) {
       for (const d of downstream) {
         if (!d.node) continue;
@@ -47,7 +78,7 @@ export function FindingDialog({ node, onClose }: Props) {
           title: d.node.label,
           location: location || '(chained)',
           severity: d.node.severity ?? 'medium',
-          notes: `Auto-chained from ${node.label}${d.rationale ? ` (${d.rationale})` : ''}`,
+          notes: `Auto-chained from ${libNode.label}${d.rationale ? ` (${d.rationale})` : ''}`,
         });
         addEdge(id, childId, d.rationale);
       }
@@ -67,13 +98,13 @@ export function FindingDialog({ node, onClose }: Props) {
       >
         <div>
           <div className="text-[11px] uppercase tracking-wider text-slate-400">
-            Add Finding &middot; {node.kind}
+            {isEdit ? 'Edit Finding' : 'Add Finding'} &middot; {libNode.kind}
           </div>
-          <div className="text-lg font-semibold text-slate-100">{node.label}</div>
-          <div className="text-xs text-slate-400 mt-1">{node.description}</div>
-          {(node.cwe || node.owasp) && (
+          <div className="text-lg font-semibold text-slate-100">{libNode.label}</div>
+          <div className="text-xs text-slate-400 mt-1">{libNode.description}</div>
+          {(libNode.cwe || libNode.owasp) && (
             <div className="text-[10px] text-slate-500 mt-1 font-mono">
-              {[node.cwe, node.owasp].filter(Boolean).join(' · ')}
+              {[libNode.cwe, libNode.owasp].filter(Boolean).join(' · ')}
             </div>
           )}
         </div>
@@ -109,16 +140,18 @@ export function FindingDialog({ node, onClose }: Props) {
               ))}
             </select>
           </Field>
-          <Field label="Auto-chain downstream">
-            <label className="flex items-center gap-2 h-[34px] text-xs text-slate-300">
-              <input
-                type="checkbox"
-                checked={autoChain}
-                onChange={(e) => setAutoChain(e.target.checked)}
-              />
-              {downstream.length} potential next step(s)
-            </label>
-          </Field>
+          {!isEdit && (
+            <Field label="Auto-chain downstream">
+              <label className="flex items-center gap-2 h-[34px] text-xs text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={autoChain}
+                  onChange={(e) => setAutoChain(e.target.checked)}
+                />
+                {downstream.length} potential next step(s)
+              </label>
+            </Field>
+          )}
         </div>
 
         <Field label="Notes / evidence">
@@ -131,7 +164,7 @@ export function FindingDialog({ node, onClose }: Props) {
           />
         </Field>
 
-        {downstream.length > 0 && autoChain && (
+        {!isEdit && downstream.length > 0 && autoChain && (
           <div className="rounded border border-border bg-bg/50 p-2">
             <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
               Will auto-chain to
@@ -151,13 +184,29 @@ export function FindingDialog({ node, onClose }: Props) {
           </div>
         )}
 
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" onClick={onClose} className="btn-secondary">
-            Cancel
-          </button>
-          <button type="submit" className="btn-primary">
-            Add Finding
-          </button>
+        <div className="flex justify-between gap-2 pt-2">
+          {isEdit && finding ? (
+            <button
+              type="button"
+              className="text-xs text-slate-500 hover:text-accent"
+              onClick={() => {
+                if (confirm(`Delete finding "${finding.title}"? This will also remove its chain links.`)) {
+                  deleteFinding(finding.id);
+                  onClose();
+                }
+              }}
+            >
+              Delete
+            </button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="btn-secondary">
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary">
+              {isEdit ? 'Save' : 'Add Finding'}
+            </button>
+          </div>
         </div>
 
         <style>{`

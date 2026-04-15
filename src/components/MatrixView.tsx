@@ -1,12 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { NODES } from '../data/attackLibrary';
 import { PHASES } from '../types';
-import type { AttackNode } from '../types';
+import type { AttackNode, NodeKind } from '../types';
 import { useStore, SEVERITY_COLOR } from '../store';
 
 interface Props {
   onPick: (node: AttackNode) => void;
 }
+
+type KindFilter = 'all' | NodeKind;
 
 export function MatrixView({ onPick }: Props) {
   const activeEngagementId = useStore((s) => s.activeEngagementId);
@@ -14,12 +16,9 @@ export function MatrixView({ onPick }: Props) {
   const selectNode = useStore((s) => s.selectNode);
   const selectedNodeId = useStore((s) => s.selectedNodeId);
 
-  const columns = useMemo(() => {
-    return PHASES.map((phase) => ({
-      ...phase,
-      nodes: NODES.filter((n) => n.phase === phase.id),
-    }));
-  }, []);
+  const [query, setQuery] = useState('');
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
+  const [onlyWithFindings, setOnlyWithFindings] = useState(false);
 
   const findingCountByNode = useMemo(() => {
     const map: Record<string, number> = {};
@@ -30,14 +29,85 @@ export function MatrixView({ onPick }: Props) {
     return map;
   }, [findings, activeEngagementId]);
 
+  const q = query.trim().toLowerCase();
+  const matches = (n: AttackNode) => {
+    if (kindFilter !== 'all' && n.kind !== kindFilter) return false;
+    if (onlyWithFindings && !(findingCountByNode[n.id] > 0)) return false;
+    if (!q) return true;
+    return (
+      n.label.toLowerCase().includes(q) ||
+      n.description.toLowerCase().includes(q) ||
+      (n.cwe?.toLowerCase().includes(q) ?? false) ||
+      (n.owasp?.toLowerCase().includes(q) ?? false) ||
+      n.id.toLowerCase().includes(q)
+    );
+  };
+
+  const columns = useMemo(
+    () =>
+      PHASES.map((phase) => ({
+        ...phase,
+        nodes: NODES.filter((n) => n.phase === phase.id && matches(n)),
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [q, kindFilter, onlyWithFindings, findingCountByNode],
+  );
+
+  const totalMatches = columns.reduce((n, c) => n + c.nodes.length, 0);
+
   return (
     <div className="flex-1 overflow-auto scrollbar-thin p-4">
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-slate-100">Web Attack Matrix</h2>
-        <p className="text-xs text-slate-400">
-          Techniques grouped by kill-chain phase. Click a cell to add it as a finding or pin to
-          the chain canvas. Counts reflect findings in the active engagement.
-        </p>
+      <div className="mb-3 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-100">Web Attack Matrix</h2>
+          <p className="text-xs text-slate-400">
+            Techniques grouped by kill-chain phase. Click a cell to add it as a finding in the
+            active engagement. Counts show findings already mapped.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search label, CWE, OWASP…"
+            className="bg-panel border border-border rounded px-2 py-1 text-xs text-slate-200 w-56 focus:outline-none focus:border-accent"
+          />
+          <FilterPill active={kindFilter === 'all'} onClick={() => setKindFilter('all')}>
+            All
+          </FilterPill>
+          <FilterPill
+            active={kindFilter === 'vulnerability'}
+            onClick={() => setKindFilter('vulnerability')}
+            color="#ef4444"
+          >
+            Vuln
+          </FilterPill>
+          <FilterPill
+            active={kindFilter === 'technique'}
+            onClick={() => setKindFilter('technique')}
+            color="#f59e0b"
+          >
+            Technique
+          </FilterPill>
+          <FilterPill
+            active={kindFilter === 'impact'}
+            onClick={() => setKindFilter('impact')}
+            color="#8b5cf6"
+          >
+            Impact
+          </FilterPill>
+          <label className="text-[11px] text-slate-400 inline-flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={onlyWithFindings}
+              onChange={(e) => setOnlyWithFindings(e.target.checked)}
+            />
+            with findings only
+          </label>
+          <span className="text-[10px] text-slate-500 ml-1">
+            {totalMatches}/{NODES.length}
+          </span>
+        </div>
       </div>
 
       <div
@@ -51,6 +121,9 @@ export function MatrixView({ onPick }: Props) {
               <span className="ml-1 text-slate-600">({col.nodes.length})</span>
             </div>
             <div className="flex flex-col gap-2">
+              {col.nodes.length === 0 && (
+                <div className="text-[10px] text-slate-600 italic px-1">—</div>
+              )}
               {col.nodes.map((n) => {
                 const count = findingCountByNode[n.id] ?? 0;
                 const isSelected = selectedNodeId === n.id;
@@ -89,10 +162,7 @@ export function MatrixView({ onPick }: Props) {
                       )}
                     </div>
                     <div className="flex items-center gap-1 mt-1">
-                      <span
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ background: color }}
-                      />
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
                       <span className="text-[10px] text-slate-400">
                         {n.cwe ?? n.owasp ?? n.kind}
                       </span>
@@ -107,6 +177,34 @@ export function MatrixView({ onPick }: Props) {
 
       <Legend />
     </div>
+  );
+}
+
+function FilterPill({
+  active, onClick, children, color,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  color?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`text-[11px] px-2 py-1 rounded border transition-colors ${
+        active
+          ? 'border-accent bg-accent/10 text-slate-100'
+          : 'border-border bg-panel text-slate-400 hover:border-slate-500'
+      }`}
+    >
+      {color && (
+        <span
+          className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle"
+          style={{ background: color }}
+        />
+      )}
+      {children}
+    </button>
   );
 }
 
