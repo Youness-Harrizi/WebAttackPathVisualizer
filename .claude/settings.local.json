@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(where npm:*)",
+      "Bash(where node:*)"
+    ]
+  }
+}
