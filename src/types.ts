@@ -34,6 +34,8 @@ export interface AttackNode {
   references?: string[];
   /** Default severity if used standalone */
   severity?: Severity;
+  /** Stock remediation guidance (overridable per-finding) */
+  remediation?: string;
 }
 
 export interface AttackEdge {
@@ -51,8 +53,11 @@ export interface Finding {
   title: string;
   location: string; // URL / endpoint / parameter
   severity: Severity;
+  cvssVector?: string;   // e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+  cvssScore?: number;
   notes?: string;
   evidence?: string;
+  remediation?: string;  // per-finding override; falls back to library default
   createdAt: number;
 }
 

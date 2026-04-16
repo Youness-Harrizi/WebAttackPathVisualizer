@@ -2,11 +2,10 @@ import { useEffect, useState } from 'react';
 import { useStore, SEVERITY_ORDER } from '../store';
 import type { AttackNode, Finding, Severity } from '../types';
 import { outgoing, NODE_BY_ID } from '../data/attackLibrary';
+import { CvssCalculator } from './CvssCalculator';
 
 interface Props {
-  /** Library node for "add new". Mutually exclusive with `finding`. */
   node?: AttackNode | null;
-  /** Existing finding to edit. Mutually exclusive with `node`. */
   finding?: Finding | null;
   onClose: () => void;
 }
@@ -24,7 +23,10 @@ export function FindingDialog({ node, finding, onClose }: Props) {
   const [title, setTitle] = useState('');
   const [location, setLocation] = useState('');
   const [severity, setSeverity] = useState<Severity>('high');
+  const [cvssVector, setCvssVector] = useState<string | undefined>();
+  const [cvssScore, setCvssScore] = useState<number | undefined>();
   const [notes, setNotes] = useState('');
+  const [remediation, setRemediation] = useState('');
   const [autoChain, setAutoChain] = useState(true);
 
   useEffect(() => {
@@ -32,16 +34,21 @@ export function FindingDialog({ node, finding, onClose }: Props) {
       setTitle(finding.title);
       setLocation(finding.location);
       setSeverity(finding.severity);
+      setCvssVector(finding.cvssVector);
+      setCvssScore(finding.cvssScore);
       setNotes(finding.notes ?? '');
+      setRemediation(finding.remediation ?? '');
     } else if (node) {
       setTitle(node.label);
       setLocation('');
       setSeverity(node.severity ?? 'high');
+      setCvssVector(undefined);
+      setCvssScore(undefined);
       setNotes('');
+      setRemediation(node.remediation ?? '');
     }
   }, [finding, node]);
 
-  // Esc to close
   useEffect(() => {
     if (!libNode) return;
     const onKey = (e: KeyboardEvent) => {
@@ -64,12 +71,18 @@ export function FindingDialog({ node, finding, onClose }: Props) {
     if (!libNode) return;
 
     if (isEdit && finding) {
-      updateFinding(finding.id, { title, location, severity, notes });
+      updateFinding(finding.id, {
+        title, location, severity, notes, remediation,
+        cvssVector, cvssScore,
+      });
       onClose();
       return;
     }
 
-    const id = addFinding({ nodeId: libNode.id, title, location, severity, notes });
+    const id = addFinding({
+      nodeId: libNode.id, title, location, severity, notes, remediation,
+      cvssVector, cvssScore,
+    });
     if (autoChain && downstream.length > 0) {
       for (const d of downstream) {
         if (!d.node) continue;
@@ -79,6 +92,7 @@ export function FindingDialog({ node, finding, onClose }: Props) {
           location: location || '(chained)',
           severity: d.node.severity ?? 'medium',
           notes: `Auto-chained from ${libNode.label}${d.rationale ? ` (${d.rationale})` : ''}`,
+          remediation: d.node.remediation ?? '',
         });
         addEdge(id, childId, d.rationale);
       }
@@ -94,7 +108,7 @@ export function FindingDialog({ node, finding, onClose }: Props) {
       <form
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
-        className="bg-panel border border-border rounded-lg w-[520px] max-w-[92vw] p-5 space-y-3"
+        className="bg-panel border border-border rounded-lg w-[560px] max-w-[92vw] max-h-[90vh] overflow-y-auto scrollbar-thin p-5 space-y-3"
       >
         <div>
           <div className="text-[11px] uppercase tracking-wider text-slate-400">
@@ -110,31 +124,16 @@ export function FindingDialog({ node, finding, onClose }: Props) {
         </div>
 
         <Field label="Title">
-          <input
-            autoFocus
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="input"
-            required
-          />
+          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} className="input" required />
         </Field>
 
         <Field label="Location (URL / endpoint / param)">
-          <input
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder="https://app.acme.example/comments?id=…"
-            className="input"
-          />
+          <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="https://app.acme.example/comments?id=…" className="input" />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Severity">
-            <select
-              value={severity}
-              onChange={(e) => setSeverity(e.target.value as Severity)}
-              className="input"
-            >
+            <select value={severity} onChange={(e) => setSeverity(e.target.value as Severity)} className="input">
               {SEVERITY_ORDER.slice().reverse().map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
@@ -143,25 +142,43 @@ export function FindingDialog({ node, finding, onClose }: Props) {
           {!isEdit && (
             <Field label="Auto-chain downstream">
               <label className="flex items-center gap-2 h-[34px] text-xs text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={autoChain}
-                  onChange={(e) => setAutoChain(e.target.checked)}
-                />
+                <input type="checkbox" checked={autoChain} onChange={(e) => setAutoChain(e.target.checked)} />
                 {downstream.length} potential next step(s)
               </label>
             </Field>
           )}
         </div>
 
+        <CvssCalculator
+          initialVector={cvssVector}
+          onUpdate={(vec, score, sev) => {
+            setCvssVector(vec);
+            setCvssScore(score);
+            setSeverity(sev);
+          }}
+        />
+
         <Field label="Notes / evidence">
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="input font-mono text-[11px]" placeholder="Payload, request/response snippet, screenshot ref…" />
+        </Field>
+
+        <Field label="Remediation">
           <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            value={remediation}
+            onChange={(e) => setRemediation(e.target.value)}
             rows={3}
-            className="input font-mono text-[11px]"
-            placeholder="Payload, request/response snippet, screenshot ref…"
+            className="input text-[11px]"
+            placeholder="Remediation guidance…"
           />
+          {!remediation && libNode.remediation && (
+            <button
+              type="button"
+              className="text-[10px] text-accent hover:underline mt-1"
+              onClick={() => setRemediation(libNode.remediation ?? '')}
+            >
+              Load default from library
+            </button>
+          )}
         </Field>
 
         {!isEdit && downstream.length > 0 && autoChain && (
@@ -174,9 +191,7 @@ export function FindingDialog({ node, finding, onClose }: Props) {
                 d.node ? (
                   <li key={d.node.id}>
                     → <span className="font-medium">{d.node.label}</span>
-                    {d.rationale && (
-                      <span className="text-slate-500"> &middot; {d.rationale}</span>
-                    )}
+                    {d.rationale && <span className="text-slate-500"> &middot; {d.rationale}</span>}
                   </li>
                 ) : null,
               )}
@@ -186,53 +201,23 @@ export function FindingDialog({ node, finding, onClose }: Props) {
 
         <div className="flex justify-between gap-2 pt-2">
           {isEdit && finding ? (
-            <button
-              type="button"
-              className="text-xs text-slate-500 hover:text-accent"
-              onClick={() => {
-                if (confirm(`Delete finding "${finding.title}"? This will also remove its chain links.`)) {
-                  deleteFinding(finding.id);
-                  onClose();
-                }
-              }}
-            >
-              Delete
-            </button>
+            <button type="button" className="text-xs text-slate-500 hover:text-accent" onClick={() => {
+              if (confirm(`Delete finding "${finding.title}"?`)) { deleteFinding(finding.id); onClose(); }
+            }}>Delete</button>
           ) : <span />}
           <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="btn-secondary">
-              Cancel
-            </button>
-            <button type="submit" className="btn-primary">
-              {isEdit ? 'Save' : 'Add Finding'}
-            </button>
+            <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
+            <button type="submit" className="btn-primary">{isEdit ? 'Save' : 'Add Finding'}</button>
           </div>
         </div>
 
         <style>{`
-          .input {
-            width: 100%;
-            background: #0b0f17;
-            border: 1px solid #1f2937;
-            border-radius: 6px;
-            padding: 6px 8px;
-            color: #e2e8f0;
-            font-size: 12px;
-            outline: none;
-          }
-          .input:focus { border-color: #ef4444; }
-          .btn-primary {
-            background: #ef4444; color: white;
-            padding: 6px 14px; border-radius: 6px;
-            font-size: 12px; font-weight: 600;
-          }
-          .btn-primary:hover { background: #dc2626; }
-          .btn-secondary {
-            background: transparent; color: #cbd5e1;
-            border: 1px solid #1f2937;
-            padding: 6px 14px; border-radius: 6px; font-size: 12px;
-          }
-          .btn-secondary:hover { border-color: #475569; }
+          .input { width:100%; background:#0b0f17; border:1px solid #1f2937; border-radius:6px; padding:6px 8px; color:#e2e8f0; font-size:12px; outline:none; }
+          .input:focus { border-color:#ef4444; }
+          .btn-primary { background:#ef4444; color:white; padding:6px 14px; border-radius:6px; font-size:12px; font-weight:600; }
+          .btn-primary:hover { background:#dc2626; }
+          .btn-secondary { background:transparent; color:#cbd5e1; border:1px solid #1f2937; padding:6px 14px; border-radius:6px; font-size:12px; }
+          .btn-secondary:hover { border-color:#475569; }
         `}</style>
       </form>
     </div>

@@ -4,6 +4,19 @@ import type { Engagement, Finding, FindingEdge, Severity } from './types';
 
 type View = 'matrix' | 'chain' | 'report';
 
+export interface Branding {
+  logoDataUrl?: string;
+  primaryColor: string;
+  companyName: string;
+  disclaimer: string;
+}
+
+const DEFAULT_BRANDING: Branding = {
+  primaryColor: '#ef4444',
+  companyName: 'Security Assessment',
+  disclaimer: 'This report is confidential and intended solely for the named recipient. Do not distribute without written authorization.',
+};
+
 interface State {
   view: View;
   engagements: Engagement[];
@@ -12,8 +25,10 @@ interface State {
   findingEdges: FindingEdge[];
   /** Transient selection, not persisted meaningfully. */
   selectedNodeId: string | null;
+  branding: Branding;
 
   setView: (v: View) => void;
+  updateBranding: (patch: Partial<Branding>) => void;
   createEngagement: (name: string, client: string, scope: string) => string;
   setActiveEngagement: (id: string) => void;
   deleteEngagement: (id: string) => void;
@@ -126,8 +141,11 @@ export const useStore = create<State>()(
         return { findings: s.findings, findingEdges: s.edges };
       })(),
       selectedNodeId: null,
+      branding: { ...DEFAULT_BRANDING },
 
       setView: (v) => set({ view: v }),
+      updateBranding: (patch) =>
+        set((s) => ({ branding: { ...s.branding, ...patch } })),
 
       createEngagement: (name, client, scope) => {
         const e: Engagement = { id: uid(), name, client, scope, createdAt: Date.now() };
