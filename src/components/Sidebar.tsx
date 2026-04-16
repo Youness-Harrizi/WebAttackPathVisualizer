@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useStore } from '../store';
 
-export function Sidebar() {
+interface SidebarProps {
+  onImportScanner: () => void;
+}
+
+export function Sidebar({ onImportScanner }: SidebarProps) {
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
   const engagements = useStore((s) => s.engagements);
@@ -103,6 +107,12 @@ export function Sidebar() {
         <div className="text-[10px] text-slate-500">
           {activeCount} finding{activeCount === 1 ? '' : 's'} in active engagement
         </div>
+        <button
+          className="w-full text-[11px] rounded bg-accent/15 border border-accent/30 hover:bg-accent/25 text-accent py-1.5 font-medium"
+          onClick={onImportScanner}
+        >
+          Import Scanner Results
+        </button>
         <div className="flex gap-1">
           <button
             className="flex-1 text-[11px] rounded border border-border hover:border-slate-500 py-1"

@@ -6,6 +6,7 @@ import { ChainView } from './components/ChainView';
 import { ReportView } from './components/ReportView';
 import { FindingDialog } from './components/FindingDialog';
 import { HelpOverlay } from './components/HelpOverlay';
+import { ImportDialog } from './components/ImportDialog';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { NODES } from './data/attackLibrary';
 import type { AttackNode, Finding } from './types';
@@ -20,8 +21,9 @@ export default function App() {
   const [addNode, setAddNode] = useState<AttackNode | null>(null);
   const [editFinding, setEditFinding] = useState<Finding | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
-  const anyDialogOpen = !!addNode || !!editFinding || helpOpen;
+  const anyDialogOpen = !!addNode || !!editFinding || helpOpen || importOpen;
 
   useKeyboardShortcuts(
     useMemo(
@@ -32,7 +34,6 @@ export default function App() {
         onNew: () => {
           if (anyDialogOpen) return;
           setView('matrix');
-          // Open dialog pre-seeded on the first vuln category so "n" always opens a dialog.
           const first = NODES.find((n) => n.kind === 'vulnerability') ?? NODES[0];
           setAddNode(first);
         },
@@ -44,7 +45,7 @@ export default function App() {
 
   return (
     <div className="h-screen flex bg-bg text-slate-200">
-      <Sidebar />
+      <Sidebar onImportScanner={() => setImportOpen(true)} />
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="border-b border-border px-4 py-2 flex items-center justify-between">
           <div>
@@ -61,6 +62,12 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setImportOpen(true)}
+              className="text-[10px] text-slate-400 hover:text-slate-200 border border-border rounded px-2 py-1"
+            >
+              Import scan
+            </button>
             <button
               onClick={() => setHelpOpen(true)}
               className="text-[10px] text-slate-400 hover:text-slate-200 border border-border rounded px-2 py-1"
@@ -102,6 +109,7 @@ export default function App() {
         }}
       />
       <HelpOverlay open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
     </div>
   );
 }
